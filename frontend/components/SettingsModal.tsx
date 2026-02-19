@@ -10,8 +10,10 @@ import {
   getModels,
   getStatus,
   uploadDataset,
+  analyzePdfSeverity,
 } from "@/lib/api"
-import type { StatusResponse } from "@/lib/types"
+import type { StatusResponse, SeverityResult } from "@/lib/types"
+import SeverityBadge from "@/components/SeverityBadge"
 
 interface SettingsModalProps {
   open: boolean
@@ -41,6 +43,14 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [isPolling, setIsPolling] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  
+  // PDF severity analysis state
+  const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null)
+  const [pdfSeverityResult, setPdfSeverityResult] = useState<SeverityResult | null>(null)
+  const [isAnalyzingPdf, setIsAnalyzingPdf] = useState(false)
+  const [pdfError, setPdfError] = useState<string | null>(null)
+  const [extractedText, setExtractedText] = useState<string | null>(null)
+  const pdfInputRef = useRef<HTMLInputElement>(null)
 
   // Fetch models and status when modal opens
   useEffect(() => {
@@ -93,6 +103,23 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     }
   }, [selectedFile, isRebuilding, isPolling, setRebuilding])
 
+  const handleAnalyzePdf = useCallback(async () => {
+    if (!selectedPdfFile || isAnalyzingPdf) return
+    setIsAnalyzingPdf(true)
+    setPdfError(null)
+    setPdfSeverityResult(null)
+    setExtractedText(null)
+    try {
+      const result = await analyzePdfSeverity(selectedPdfFile)
+      setPdfSeverityResult(result.severity)
+      setExtractedText(result.extracted_text)
+    } catch (e) {
+      setPdfError(e instanceof Error ? e.message : "Failed to analyze PDF")
+    } finally {
+      setIsAnalyzingPdf(false)
+    }
+  }, [selectedPdfFile, isAnalyzingPdf])
+
   const rag = statusData?.rag
   const statusLine = rag
     ? `${rag.records} records · ${rag.chunks} chunks · ${rag.years[0] ?? "?"}–${rag.years[rag.years.length - 1] ?? "?"}`
@@ -139,8 +166,8 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
               className="flex flex-1 flex-col items-center gap-0.5 rounded-lg border px-3 py-2 text-sm transition-colors"
               style={
                 provider === "groq"
-                  ? { borderColor: "var(--accent)", background: "rgba(59, 130, 246, 0.1)", color: "var(--accent)" }
-                  : { borderColor: "var(--border)", color: "var(--text-muted)" }
+                  ? { borderColor: "var(--accent)", background: "white", color: "var(--accent)" }
+                  : { borderColor: "var(--border)", background: "var(--card)", color: "var(--text-muted)" }
               }
             >
               Groq
@@ -152,8 +179,8 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
               className="flex flex-1 flex-col items-center gap-0.5 rounded-lg border px-3 py-2 text-sm transition-colors"
               style={
                 provider === "anthropic"
-                  ? { borderColor: "var(--accent)", background: "rgba(59, 130, 246, 0.1)", color: "var(--accent)" }
-                  : { borderColor: "var(--border)", color: "var(--text-muted)" }
+                  ? { borderColor: "var(--accent)", background: "white", color: "var(--accent)" }
+                  : { borderColor: "var(--border)", background: "var(--card)", color: "var(--text-muted)" }
               }
             >
               Anthropic
@@ -297,7 +324,69 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
           )}
         </div>
 
-        {/* 7. Footer */}
+        {/* 7. PDF Severity Analysis */}
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-medium" style={{ color: "var(--text-muted)" }}>
+            PDF Severity Analysis
+          </label>
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Upload a PDF report to analyze the severity of the "What happened" section
+          </p>
+          <div
+            className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed p-4 text-center text-sm transition-colors"
+            style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+            onClick={() => pdfInputRef.current?.click()}
+          >
+            <input
+              ref={pdfInputRef}
+              type="file"
+              accept=".pdf"
+              className="hidden"
+              onChange={(e) => setSelectedPdfFile(e.target.files?.[0] ?? null)}
+            />
+            {selectedPdfFile ? (
+              <span style={{ color: "var(--text)" }}>
+                {selectedPdfFile.name} ({(selectedPdfFile.size / 1024).toFixed(1)} KB)
+              </span>
+            ) : (
+              "Drop PDF here or click to browse"
+            )}
+          </div>
+          <Button
+            onClick={handleAnalyzePdf}
+            disabled={!selectedPdfFile || isAnalyzingPdf}
+            className="w-full justify-center gap-2"
+            style={{ background: "var(--accent)" }}
+          >
+            {isAnalyzingPdf && <Loader2 className="h-4 w-4 animate-spin" />}
+            {isAnalyzingPdf ? "Analyzing..." : "Analyze Severity"}
+          </Button>
+          {pdfError && (
+            <p className="text-xs text-red-500">{pdfError}</p>
+          )}
+          {pdfSeverityResult && pdfSeverityResult.available && (
+            <div className="flex flex-col gap-2 rounded-lg border p-3" style={{ borderColor: "var(--border)" }}>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium" style={{ color: "var(--text)" }}>
+                  Predicted Severity:
+                </span>
+                <SeverityBadge severity={pdfSeverityResult} />
+              </div>
+              {extractedText && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs" style={{ color: "var(--text-muted)" }}>
+                    View extracted text ({extractedText.length} chars)
+                  </summary>
+                  <p className="mt-2 text-xs whitespace-pre-wrap" style={{ color: "var(--text-muted)" }}>
+                    {extractedText}
+                  </p>
+                </details>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* 8. Footer */}
         <p className="text-center text-xs" style={{ color: "var(--text-muted)" }}>
           Keys are stored in your browser only. Never sent to any server except the AI provider.
         </p>
