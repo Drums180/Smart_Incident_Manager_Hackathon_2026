@@ -5,6 +5,7 @@ import { Settings } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import ChatPanel from "@/components/ChatPanel"
 import SettingsModal from "@/components/SettingsModal"
+import LeftDashboard from "@/components/LeftDashboard"
 
 export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -39,15 +40,13 @@ export default function Home() {
       <div className="flex flex-1 flex-row overflow-hidden">
         {/* Left panel */}
         <div
-          className="flex w-[55%] items-center justify-center border-r"
+          className="flex w-[55%] items-stretch border-r"
           style={{
             background: "var(--surface)",
             borderColor: "var(--border)",
           }}
         >
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            Dashboard Panel
-          </p>
+          <LeftDashboard />
         </div>
 
         {/* Right panel */}
