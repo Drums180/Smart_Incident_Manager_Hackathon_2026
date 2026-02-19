@@ -384,3 +384,57 @@ def validate_key(req: ValidateKeyRequest):
 def get_models():
     """Available models per provider for the settings dropdown."""
     return llm.PROVIDER_MODELS
+
+
+# ── PDF Severity Analysis ─────────────────────────────────────────────────────────
+
+@app.post("/api/analyze-pdf-severity")
+async def analyze_pdf_severity(file: UploadFile = File(...)):
+    """
+    Upload a PDF report → extract "What happened" section → run severity model.
+    Returns severity prediction result.
+    """
+    if not (file.filename or "").endswith(".pdf"):
+        raise HTTPException(400, "Only .pdf files are accepted.")
+
+    import PyPDF2
+    import io
+
+    contents = await file.read()
+
+    # Extract text from PDF
+    try:
+        pdf_reader = PyPDF2.PdfReader(io.BytesIO(contents))
+        full_text = ""
+        for page in pdf_reader.pages:
+            full_text += page.extract_text() + "\n"
+    except Exception as e:
+        raise HTTPException(400, f"Could not parse PDF: {e}")
+
+    # Extract "What happened" section
+    # Look for section starting with "What happened" (case insensitive)
+    # and ending at next major section (What could have happened, Why did it happen, etc.)
+    import re
+    
+    # Find "What happened" section - handle various formats
+    # Pattern matches "What happened" followed by optional colon/newlines, then captures text
+    # until next section header (case insensitive)
+    pattern = r"(?i)(?:^|\n)\s*what\s+happened\s*:?\s*\n\s*(.*?)(?=\n\s*(?:What\s+could\s+have\s+happened|Why\s+did\s+it\s+happen|Causal\s+factors|What\s+went\s+well|Lessons\s+to\s+prevent|Actions\s*$|$))"
+    match = re.search(pattern, full_text, re.DOTALL | re.IGNORECASE | re.MULTILINE)
+    
+    if not match:
+        raise HTTPException(400, "Could not find 'What happened' section in PDF. Please ensure the PDF contains this section.")
+    
+    what_happened_text = match.group(1).strip()
+    
+    if not what_happened_text:
+        raise HTTPException(400, "Found 'What happened' section but it appears to be empty.")
+    
+    # Run severity prediction
+    sev_result = severity.predict(what_happened_text)
+    
+    return {
+        "severity": sev_result,
+        "extracted_text": what_happened_text[:500] + "..." if len(what_happened_text) > 500 else what_happened_text,
+        "text_length": len(what_happened_text),
+    }

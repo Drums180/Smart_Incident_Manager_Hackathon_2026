@@ -118,3 +118,40 @@ export async function getModels(): Promise<
 export async function getStatus(): Promise<StatusResponse> {
   return apiFetch<StatusResponse>("/api/status")
 }
+
+export async function analyzePdfSeverity(
+  file: File
+): Promise<{
+  severity: {
+    label: string
+    confidence: number
+    color: string
+    scores: Record<string, number>
+    available: boolean
+  }
+  extracted_text: string
+  text_length: number
+}> {
+  const formData = new FormData()
+  formData.append("file", file)
+
+  const url = `${BASE_URL}/api/analyze-pdf-severity`
+  const response = await fetch(url, {
+    method: "POST",
+    body: formData,
+  })
+
+  if (!response.ok) {
+    let errorBody: string
+    try {
+      errorBody = await response.text()
+    } catch {
+      errorBody = "Unknown error"
+    }
+    throw new Error(
+      `API request failed: ${response.status} ${response.statusText}. ${errorBody}`
+    )
+  }
+
+  return response.json()
+}
