@@ -133,5 +133,9 @@
     color: var(--text);
     min-height: 100vh;
     overflow: hidden;
+    /* Force Google Sans as the app font for both sans and mono tokens */
+    --font-geist-sans: 'googleSans', 'googleSans Fallback', ui-sans-serif, system-ui;
+    --font-geist-mono: 'googleSans', 'googleSans Fallback', ui-sans-serif, system-ui;
+    font-family: var(--font-geist-sans);
   }
 }
