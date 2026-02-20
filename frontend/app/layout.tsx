@@ -44,11 +44,24 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const initThemeScript = `(() => {
+    try {
+      const saved = localStorage.getItem('theme');
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (saved === 'dark' || (!saved && prefersDark)) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    } catch (e) {}
+  })();`;
+
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <body
         className={`${googleSans.variable} ${jetbrainsMono.variable} font-sans antialiased min-h-screen h-screen overflow-hidden`}
       >
+        <script dangerouslySetInnerHTML={{ __html: initThemeScript }} />
         {children}
       </body>
     </html>
