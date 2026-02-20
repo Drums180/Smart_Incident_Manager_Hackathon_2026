@@ -42,7 +42,22 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [isPolling, setIsPolling] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Fetch models and status when modal opens
+  // PDF state
+  const [selectedPdfFile,   setSelectedPdfFile]   = useState<File | null>(null)
+  const [pdfSeverityResult, setPdfSeverityResult] = useState<SeverityResult | null>(null)
+  const [isAnalyzingPdf,    setIsAnalyzingPdf]    = useState(false)
+  const [pdfError,          setPdfError]          = useState<string | null>(null)
+  const [pdfWordCount,      setPdfWordCount]      = useState<number | null>(null)
+  const [pdfWhatHappened,   setPdfWhatHappened]   = useState<string | null>(null)
+  const pdfInputRef = useRef<HTMLInputElement>(null)
+
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "dark"
+    const saved = localStorage.getItem("theme")
+    if (saved === "light" || saved === "dark") return saved
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+  })
+
   useEffect(() => {
     if (!open) return
     getModels().then(setModels).catch(() => {})
@@ -69,6 +84,13 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   useEffect(() => {
     setTestStatus(null)
   }, [api_key, provider])
+
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      document.documentElement.classList.toggle("dark", theme === "dark")
+      try { localStorage.setItem("theme", theme) } catch {}
+    }
+  }, [theme])
 
   const handleTestConnection = async () => {
     setTestStatus("testing")
@@ -127,38 +149,60 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
           </Button>
         </div>
 
-        {/* 2. AI Provider */}
+        {/* Theme */}
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-medium" style={{ color: "var(--text-muted)" }}>
+            Theme
+          </label>
+          <div className="flex gap-2">
+            {(["light", "dark"] as const).map((t) => {
+              const active = theme === t
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTheme(t)}
+                  className="flex-1 rounded-lg px-3 py-2 text-sm transition-all duration-150 cursor-pointer"
+                  style={
+                    active
+                      ? { borderColor: "var(--accent)", background: "var(--accent)", color: "var(--accent-foreground)" }
+                      : { borderColor: "var(--border)", background: "var(--surface)", color: "var(--text-muted)" }
+                  }
+                >
+                  {t === "light" ? "Light" : "Dark"}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* AI Provider */}
         <div className="flex flex-col gap-2">
           <label className="text-sm font-medium" style={{ color: "var(--text-muted)" }}>
             AI Provider
           </label>
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setProvider("groq")}
-              className="flex flex-1 flex-col items-center gap-0.5 rounded-lg border px-3 py-2 text-sm transition-colors"
-              style={
-                provider === "groq"
-                  ? { borderColor: "var(--accent)", background: "white", color: "var(--accent)" }
-                  : { borderColor: "var(--border)", background: "var(--card)", color: "var(--text-muted)" }
-              }
-            >
-              Groq
-              <span className="text-xs opacity-80">Free · Fast · Llama 3.3 70B</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setProvider("anthropic")}
-              className="flex flex-1 flex-col items-center gap-0.5 rounded-lg border px-3 py-2 text-sm transition-colors"
-              style={
-                provider === "anthropic"
-                  ? { borderColor: "var(--accent)", background: "white", color: "var(--accent)" }
-                  : { borderColor: "var(--border)", background: "var(--card)", color: "var(--text-muted)" }
-              }
-            >
-              Anthropic
-              <span className="text-xs opacity-80">Paid · Best quality · Claude</span>
-            </button>
+            {(["groq", "anthropic"] as const).map((p) => {
+              const active = provider === p
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setProvider(p)}
+                  className="flex flex-1 flex-col items-center gap-0.5 rounded-lg border px-3 py-2 text-sm transition-all duration-150 cursor-pointer hover:brightness-110 active:scale-[0.98]"
+                  style={
+                    active
+                      ? { borderColor: "var(--accent)", background: "var(--accent)", color: "var(--accent-foreground)" }
+                      : { borderColor: "var(--border)", background: "var(--surface)", color: "var(--text-muted)" }
+                  }
+                >
+                  <span className="font-medium">{p === "groq" ? "Groq" : "Anthropic"}</span>
+                  <span className="text-xs opacity-75">
+                    {p === "groq" ? "Free · Fast · Llama 3.3 70B" : "Paid · Best quality · Claude"}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         </div>
 

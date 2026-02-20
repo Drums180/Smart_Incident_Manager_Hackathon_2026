@@ -10,6 +10,7 @@ import {
   PieChart,
   Pie,
   Cell,
+  LabelList,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -21,30 +22,30 @@ type Row = Record<string, any>
 const severityOrder = ["Minor", "Near Miss", "Potentially Significant", "Major", "Serious"]
 
 const severityColors: Record<string, string> = {
-  Minor: "#34A853",
-  "Near Miss": "#A8D930",
-  "Potentially Significant": "#FF8F00",
-  Major: "#F4511E",
-  Serious: "#EA4335",
-  Unknown: "#9AA0A6",
+  Minor: "var(--severity-minor)",
+  "Near Miss": "var(--severity-nearmiss)",
+  "Potentially Significant": "var(--severity-potential)",
+  Major: "var(--severity-major)",
+  Serious: "var(--severity-serious)",
+  Unknown: "var(--severity-unknown)",
 }
 
 const riskColors: Record<string, string> = {
-  Low: "#34A853",
-  Medium: "#FF8F00",
-  High: "#EA4335",
-  Unknown: "#9AA0A6",
+  Low: "var(--risk-low)",
+  Medium: "var(--risk-medium)",
+  High: "var(--risk-high)",
+  Unknown: "var(--risk-unknown)",
 }
 
 const AREA_COLS = ["Remote", "Labs", "IT", "Digital", "PTW", "E&I", "Maint", "Process", "Office", "Logistics"] as const
 
-// Custom tooltip components with forced white text
+// Custom tooltip components using CSS variables for dynamic color
 const CustomLineTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     return (
       <div style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 12px" }}>
-        <p style={{ color: "#FFFFFF", margin: "0", fontSize: "14px" }}>{`Year: ${label}`}</p>
-        <p style={{ color: "#FFFFFF", margin: "4px 0 0 0", fontSize: "14px" }}>{`Reports: ${payload[0].value}`}</p>
+        <p style={{ color: "var(--text)", margin: "0", fontSize: "14px" }}>{`Year: ${label}`}</p>
+        <p style={{ color: "var(--text)", margin: "4px 0 0 0", fontSize: "14px" }}>{`Reports: ${payload[0].value}`}</p>
       </div>
     )
   }
@@ -55,8 +56,8 @@ const CustomPieTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
     return (
       <div style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 12px" }}>
-        <p style={{ color: "#FFFFFF", margin: "0", fontSize: "14px" }}>{payload[0].name}</p>
-        <p style={{ color: "#FFFFFF", margin: "4px 0 0 0", fontSize: "14px" }}>{`Value: ${payload[0].value}`}</p>
+        <p style={{ color: "var(--text)", margin: "0", fontSize: "14px" }}>{payload[0].name}</p>
+        <p style={{ color: "var(--text)", margin: "4px 0 0 0", fontSize: "14px" }}>{`Value: ${payload[0].value}`}</p>
       </div>
     )
   }
@@ -67,12 +68,34 @@ const CustomBarTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
     return (
       <div style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 12px" }}>
-        <p style={{ color: "#FFFFFF", margin: "0", fontSize: "14px" }}>{payload[0].payload.name}</p>
-        <p style={{ color: "#FFFFFF", margin: "4px 0 0 0", fontSize: "14px" }}>{`Value: ${payload[0].value}`}</p>
+        <p style={{ color: "var(--text)", margin: "0", fontSize: "14px" }}>{payload[0].payload.name}</p>
+        <p style={{ color: "var(--text)", margin: "4px 0 0 0", fontSize: "14px" }}>{`Value: ${payload[0].value}`}</p>
       </div>
     )
   }
   return null
+}
+
+// Clickable dot component for LineChart (declared at top-level to avoid render-time creation)
+const CustomLineDot = (props: any) => {
+  const { cx, cy, payload } = props
+  if (typeof cx !== 'number' || typeof cy !== 'number') return null
+  return (
+    <circle
+      cx={cx}
+      cy={cy}
+      r={4}
+      fill="var(--text)"
+      stroke="none"
+      style={{ cursor: 'pointer' }}
+      onClick={() => {
+        const y = String(payload?.year)
+        // toggle handled by parent via global event - parent sets year on click via DOM event
+        // we will dispatch a custom event that the component listens to
+        window.dispatchEvent(new CustomEvent('dashboard:selectYear', { detail: y }))
+      }}
+    />
+  )
 }
 
 function toYear(d: any) {
@@ -119,27 +142,25 @@ function parseCsvRobust(csvText: string): Row[] {
         }
         continue
       }
-      if (ch === "," && !inQuotes) {
+      if (ch === ',' && !inQuotes) {
         out.push(cur)
-        cur = ""
+        cur = ''
         continue
       }
       cur += ch
     }
     out.push(cur)
-    // Trim surrounding quotes and whitespace
-    return out.map((s) => s.trim().replace(/^"|"$/g, "").replace(/""/g, '"'))
+    return out.map((s) => s.trim().replace(/^"|"$/g, '').replace(/""/g, '"'))
   }
 
-  let headers = splitCsv(lines[0]).map((h) => String(h ?? "").trim())
+  let headers = splitCsv(lines[0]).map((h) => String(h ?? '').trim())
   const n = headers.length
 
-  const idxNActions = headers.indexOf("n_actions")
+  const idxNActions = headers.indexOf('n_actions')
   const tailLen = idxNActions >= 0 ? n - idxNActions : 20
 
   const fixedLeftLen = 8 // title..primary_classification
   const fixedMidLen = 6 // what_happened..lessons_to_prevent_re_occurrence
-  // actions is the remaining middle bucket
 
   const rows: Row[] = []
 
@@ -150,7 +171,7 @@ function parseCsvRobust(csvText: string): Row[] {
     // If perfect, map directly.
     if (parts.length === n) {
       const obj: Row = {}
-      headers.forEach((h, j) => (obj[h] = String(parts[j] ?? "").trim()))
+      headers.forEach((h, j) => (obj[h] = String(parts[j] ?? '').trim()))
       rows.push(obj)
       continue
     }
@@ -158,21 +179,19 @@ function parseCsvRobust(csvText: string): Row[] {
     // If too short, skip.
     if (parts.length < fixedLeftLen + fixedMidLen + 1 + tailLen) continue
 
-    const tail = parts.slice(-tailLen).map((p) => String(p ?? "").trim())
-    const head = parts.slice(0, fixedLeftLen).map((p) => String(p ?? "").trim())
-    const middle = parts.slice(fixedLeftLen, parts.length - tailLen).map((p) => String(p ?? "").trim())
+    const tail = parts.slice(-tailLen).map((p) => String(p ?? '').trim())
+    const head = parts.slice(0, fixedLeftLen).map((p) => String(p ?? '').trim())
+    const middle = parts.slice(fixedLeftLen, parts.length - tailLen).map((p) => String(p ?? '').trim())
 
-    // middle should be: 6 text cols + actions (possibly containing many commas)
     const midFirst = middle.slice(0, fixedMidLen)
-    const actions = middle.slice(fixedMidLen).join(",")
+    const actions = middle.slice(fixedMidLen).join(',')
 
     const reconstructed: string[] = [...head, ...midFirst, actions, ...tail]
 
     if (reconstructed.length !== n) {
-      // As a fallback, try right-aligning everything into the last columns.
-      // This avoids hard crashing and still renders “complete data” for charts/filters.
+      // fallback: right-align into last columns
       const obj: Row = {}
-      const fill = new Array(n).fill("")
+      const fill = new Array(n).fill('')
       const start = Math.max(0, n - parts.length)
       for (let k = 0; k < parts.length && start + k < n; k++) fill[start + k] = parts[k]
       headers.forEach((h, j) => (obj[h] = fill[j]))
@@ -181,7 +200,7 @@ function parseCsvRobust(csvText: string): Row[] {
     }
 
     const obj: Row = {}
-    headers.forEach((h, j) => (obj[h] = String(reconstructed[j] ?? "").trim()))
+    headers.forEach((h, j) => (obj[h] = String(reconstructed[j] ?? '').trim()))
     rows.push(obj)
   }
 
@@ -203,6 +222,9 @@ export default function ReportDashboard() {
   const [year, setYear] = useState<string>("All")
   const [selectedAreas, setSelectedAreas] = useState<Set<string>>(new Set())
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [selectedPrimary, setSelectedPrimary] = useState<string | null>(null)
+  const [selectedRisk, setSelectedRisk] = useState<string | null>(null)
+  const [selectedSeverity, setSelectedSeverity] = useState<string | null>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -215,23 +237,23 @@ export default function ReportDashboard() {
 
         const filtered = allParsed
           .filter((r) => {
-            if (!r.date) {
-              issues.push(`Missing date: ${r.title?.substring(0, 30) || "unknown"}`)
+            if (!(r as any).date) {
+              issues.push(`Missing date: ${(r as any).title?.substring(0, 30) || "unknown"}`)
               return false
             }
-            if (!r.country) {
-              issues.push(`Missing country: ${r.title?.substring(0, 30) || "unknown"}`)
+            if (!(r as any).country) {
+              issues.push(`Missing country: ${(r as any).title?.substring(0, 30) || "unknown"}`)
               return false
             }
             return true
           })
           .map((r) => ({
             ...r,
-            year: toYear(r.date),
+            year: toYear((r as any).date),
           }))
           .filter((r) => {
-            if (r.year === null) {
-              issues.push(`Invalid year from date "${r.date}": ${r.title?.substring(0, 30) || "unknown"}`)
+            if ((r as any).year === null) {
+              issues.push(`Invalid year from date "${(r as any).date}": ${(r as any).title?.substring(0, 30) || "unknown"}`)
               return false
             }
             return true
@@ -248,6 +270,9 @@ export default function ReportDashboard() {
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false))
   }, [])
+
+  // theme init
+  
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -283,6 +308,18 @@ export default function ReportDashboard() {
     return rows.filter((r) => {
       if (country !== "All" && String(r.country) !== country) return false
       if (year !== "All" && String(r.year) !== year) return false
+      if (selectedPrimary) {
+        const v = String(r.primary_classification_std || r.primary_classification || "Unknown")
+        if (v !== selectedPrimary) return false
+      }
+      if (selectedRisk) {
+        const v = String(r.risk_level || "Unknown")
+        if (v !== selectedRisk) return false
+      }
+      if (selectedSeverity) {
+        const v = String(r.severity || r.severity_level || "Unknown")
+        if (v !== selectedSeverity) return false
+      }
       // If no areas selected, show all; otherwise require at least one match
       if (selectedAreas.size > 0) {
         const hasMatchingArea = Array.from(selectedAreas).some((area) => isTruthyCell(r[area]))
@@ -290,7 +327,7 @@ export default function ReportDashboard() {
       }
       return true
     })
-  }, [rows, country, year, selectedAreas])
+  }, [rows, country, year, selectedAreas, selectedPrimary, selectedRisk, selectedSeverity])
 
   const lineData = useMemo(() => {
     const byYear = new Map<number, number>()
@@ -302,6 +339,16 @@ export default function ReportDashboard() {
       .sort((a, b) => a[0] - b[0])
       .map(([y, n]) => ({ year: y, reports: n }))
   }, [filtered])
+
+  // Listen for custom events dispatched by chart dots to toggle year filter
+  useEffect(() => {
+    const handler = (e: any) => {
+      const y = String(e?.detail)
+      setYear((prev) => (prev === y ? 'All' : y))
+    }
+    window.addEventListener('dashboard:selectYear', handler as any)
+    return () => window.removeEventListener('dashboard:selectYear', handler as any)
+  }, [])
 
   const riskData = useMemo(() => {
     const counts = new Map<string, number>()
@@ -330,6 +377,21 @@ export default function ReportDashboard() {
     return ordered
   }, [filtered])
 
+  const primaryData = useMemo(() => {
+    const counts = new Map<string, number>()
+    filtered.forEach((r) => {
+      const k = String(r.primary_classification_std || r.primary_classification || "Unknown")
+      counts.set(k, (counts.get(k) || 0) + 1)
+    })
+    const arr = Array.from(counts.entries()).map(([name, value]) => ({ name, value }))
+    arr.sort((a, b) => b.value - a.value)
+    return arr.map((d, i) => ({
+      ...d,
+      color: i === 0 ? "var(--primary-top1)" : i === 1 ? "var(--primary-top2)" : "var(--primary-other)",
+      label: i <= 1 ? String(d.value) : "",
+    }))
+  }, [filtered])
+
   const summary = useMemo(() => {
     const total = filtered.length
     const riskTop = [...riskData].sort((a, b) => b.value - a.value)[0]
@@ -349,12 +411,13 @@ export default function ReportDashboard() {
       {/* Title row (like the sketch) */}
       <div className="flex items-end justify-between gap-4 mb-6">
         <div>
-          <div className="text-4xl font-extrabold tracking-wide" style={{ color: "var(--text)" }}>REPORT</div>
+          <div className="text-4xl font-extrabold tracking-wide" style={{ color: "var(--text)" }}>INCIDENTS REPORT</div>
           <div className="h-[3px] w-28 mt-1" style={{ background: "var(--accent)" }} />
         </div>
 
         {/* Filters */}
         <div className="flex flex-wrap gap-3">
+          
           <div className="rounded-lg px-3 py-2" style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}>
             <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>country</div>
             <select
@@ -420,11 +483,14 @@ export default function ReportDashboard() {
                     </label>
                   ))}
                 </div>
+                
               </div>
             )}
           </div>
         </div>
       </div>
+
+      
 
       {/* Main grid like the sketch: big line chart + right "expectations" box + bottom donut + severity bar */}
       <div className="grid grid-cols-12 gap-4">
@@ -438,7 +504,7 @@ export default function ReportDashboard() {
               <XAxis dataKey="year" stroke="var(--text-muted)" />
               <YAxis stroke="var(--text-muted)" allowDecimals={false} />
               <Tooltip content={<CustomLineTooltip />} />
-              <Line type="monotone" dataKey="reports" stroke="var(--text)" strokeWidth={3} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="reports" stroke="var(--text)" strokeWidth={3} dot={<CustomLineDot />} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -468,16 +534,67 @@ export default function ReportDashboard() {
           </div>
         </div>
 
+        {/* Primary classification (middle, full width) */}
+        <div className="col-span-12 rounded-xl p-4" style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}>
+          <div className="text-sm font-semibold mb-2" style={{ color: "var(--text)" }}>Primary classification</div>
+          <div className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>Count of incidents by primary_classification_std</div>
+          <ResponsiveContainer width="100%" height={Math.max(120, Math.min(400, primaryData.length * 36))}>
+            <BarChart data={primaryData} layout="vertical" margin={{ top: 6, right: 10, left: 10, bottom: 6 }}>
+              <CartesianGrid strokeDasharray="0" stroke="var(--border)" />
+              <XAxis type="number" stroke="var(--text-muted)" hide />
+              <YAxis type="category" dataKey="name" stroke="var(--text-muted)" width={220} />
+              <Tooltip content={<CustomBarTooltip />} />
+              <Bar dataKey="value" isAnimationActive={false}>
+                {primaryData.map((d, i) => (
+                  <Cell
+                    key={i}
+                    fill={d.color}
+                    fillOpacity={0.12}
+                    stroke={d.color}
+                    strokeWidth={2}
+                    onClick={() => setSelectedPrimary((s) => (s === d.name ? null : d.name))}
+                    style={{ cursor: 'pointer' }}
+                  />
+                ))}
+                <LabelList
+                  dataKey="label"
+                  position="insideRight"
+                  content={(props: any) => {
+                    const { x, y, width, height, index } = props
+                    const item = primaryData[index]
+                    if (!item || !item.label) return null
+                    const cx = x + width - 8
+                    const cy = y + height / 2 + 4
+                    return (
+                      <text x={cx} y={cy} fill={item.color} fontSize={12} textAnchor="end">
+                        {item.label}
+                      </text>
+                    )
+                  }}
+                />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
         {/* Donut (risk distribution) */}
         <div className="col-span-12 lg:col-span-5 rounded-xl p-4" style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}>
           <div className="text-sm font-semibold mb-2" style={{ color: "var(--text)" }}>Risk distribution</div>
           <ResponsiveContainer width="100%" height={260}>
             <PieChart>
               <Pie data={riskData} dataKey="value" nameKey="name" innerRadius={70} outerRadius={105} paddingAngle={2}>
-                {riskData.map((d, i) => (
-                  <Cell key={i} fill={riskColors[d.name] || "#9AA0A6"} />
-                ))}
-              </Pie>
+                  {riskData.map((d, i) => (
+                    <Cell
+                      key={i}
+                      fill={riskColors[d.name] || "#9AA0A6"}
+                      fillOpacity={0.12}
+                      stroke={riskColors[d.name] || "#9AA0A6"}
+                      strokeWidth={2}
+                      onClick={() => setSelectedRisk((s) => (s === d.name ? null : d.name))}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  ))}
+                </Pie>
               <Tooltip content={<CustomPieTooltip />} />
             </PieChart>
           </ResponsiveContainer>
@@ -489,7 +606,7 @@ export default function ReportDashboard() {
               .sort((a, b) => b.value - a.value)
               .map((d) => (
                 <div key={d.name} className="flex items-center gap-2">
-                  <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: riskColors[d.name] || "#9AA0A6" }} />
+                  <span className="inline-block h-2.5 w-2.5" style={{ background: 'rgba(0,0,0,0)', border: `2px solid ${riskColors[d.name] || "#9AA0A6"}`, boxSizing: 'border-box' }} />
                   <span style={{ color: "var(--text-muted)" }}>
                     {d.name}: {Math.round((d.value / Math.max(1, summary.total)) * 100)}%
                   </span>
@@ -505,23 +622,33 @@ export default function ReportDashboard() {
 
           <ResponsiveContainer width="100%" height={260}>
             <BarChart
-              data={severityData}
-              layout="vertical"
-              margin={{ top: 10, right: 20, left: 30, bottom: 0 }}
-            >
+                data={severityData}
+                layout="vertical"
+                margin={{ top: 10, right: 20, left: 30, bottom: 0 }}
+              >
               <CartesianGrid strokeDasharray="0" stroke="var(--border)" />
               <XAxis type="number" stroke="var(--text-muted)" allowDecimals={false} />
               <YAxis type="category" dataKey="name" stroke="var(--text-muted)" width={140} />
               <Tooltip content={<CustomBarTooltip />} />
-              <Bar dataKey="value">
-                {severityData.map((d, i) => (
-                  <Cell key={i} fill={severityColors[d.name] || severityColors.Unknown} />
-                ))}
-              </Bar>
+                <Bar dataKey="value" isAnimationActive={false}>
+                  {severityData.map((d, i) => (
+                    <Cell
+                      key={i}
+                      fill={d.name ? severityColors[d.name] || severityColors.Unknown : severityColors.Unknown}
+                      fillOpacity={0.12}
+                      stroke={d.name ? severityColors[d.name] || severityColors.Unknown : severityColors.Unknown}
+                      strokeWidth={2}
+                      onClick={() => setSelectedSeverity((s) => (s === d.name ? null : d.name))}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  ))}
+                </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
+
+      
 
       {/* Footer */}
       <div className="mt-4 text-xs" style={{ color: "var(--text-muted)" }}>
