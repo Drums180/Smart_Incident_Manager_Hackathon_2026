@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import { Settings } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import ChatPanel from "@/components/ChatPanel"
 import SettingsModal from "@/components/SettingsModal"
 import LeftDashboard from "@/components/LeftDashboard"
@@ -14,42 +13,38 @@ export default function Home() {
     <div className="flex h-screen flex-col overflow-hidden">
       {/* Header */}
       <header
-        className="flex h-10 shrink-0 flex-row items-center justify-between border-b px-4"
-        style={{
-          background: "var(--surface)",
-          borderColor: "var(--border)",
-        }}
+        className="flex h-10 shrink-0 items-center justify-between border-b px-4"
+        style={{ background: "var(--surface)", borderColor: "var(--border)" }}
       >
         <span
-          className="font-mono text-sm font-semibold"
-          style={{ color: "var(--text)" }}
+          className="font-mono text-base font-bold tracking-wide"
+          style={{ color: "#ffffff", letterSpacing: "0.03em" }}
         >
           Safety AnalystBot
         </span>
-        <Button
-          variant="ghost"
-          size="icon"
+
+        <button
+          type="button"
           onClick={() => setIsSettingsOpen(true)}
-          className="text-[var(--text-muted)] hover:text-[var(--text)]"
+          className="rounded-lg p-1.5 transition-all duration-150 hover:bg-white/10 hover:text-blue-400 active:bg-white/15 active:scale-95 cursor-pointer"
+          style={{ color: "var(--text-muted)" }}
+          aria-label="Open settings"
         >
           <Settings className="h-4 w-4" />
-        </Button>
+        </button>
       </header>
 
-      {/* Main content */}
-      <div className="flex flex-1 flex-row overflow-hidden">
-        {/* Left panel */}
+      {/* Main panels */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left — dashboard */}
         <div
           className="flex w-[55%] items-stretch border-r"
-          style={{
-            background: "var(--surface)",
-            borderColor: "var(--border)",
-          }}
+          style={{ background: "var(--surface)", borderColor: "var(--border)" }}
         >
           <LeftDashboard />
         </div>
 
-        {/* Right panel */}
+        {/* Right — chat */}
         <div
           className="flex w-[45%] flex-col overflow-hidden"
           style={{ background: "var(--surface)" }}
