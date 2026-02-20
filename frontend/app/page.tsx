@@ -7,6 +7,7 @@ import SettingsModal from "@/components/SettingsModal"
 import LeftDashboard from "@/components/LeftDashboard"
 import AlertDashboard from "@/components/AlertDashboard"
 import IncidentTracker from "@/components/IncidentTracker"
+import ExtendedAnalytics from "@/components/ExtendedAnalytics"
 
 type Tab = "control" | "analytics" | "tracker"
 
@@ -81,7 +82,7 @@ export default function Home() {
         {/* Extended Analytics — full width, no chat */}
         {isFullWidth && (
           <div className="flex flex-1 flex-col overflow-hidden" style={{ background: "var(--surface)" }}>
-            <AnalyticsPlaceholder />
+            <ExtendedAnalytics />
           </div>
         )}
 
