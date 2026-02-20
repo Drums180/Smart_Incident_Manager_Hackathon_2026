@@ -1,69 +1,63 @@
-import type { Metadata } from "next";
-import { JetBrains_Mono } from "next/font/google";
-import localFont from "next/font/local";
-import "./globals.css";
+import type { Metadata } from "next"
+import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google"
+import "./globals.css"
 
-const googleSans = localFont({
-  src: [
-    {
-      path: "../components/fonts/GoogleSans-Regular.ttf",
-      weight: "400",
-      style: "normal",
-    },
-    {
-      path: "../components/fonts/GoogleSans-Medium.ttf",
-      weight: "500",
-      style: "normal",
-    },
-    {
-      path: "../components/fonts/GoogleSans-SemiBold.ttf",
-      weight: "600",
-      style: "normal",
-    },
-    {
-      path: "../components/fonts/GoogleSans-Bold.ttf",
-      weight: "700",
-      style: "normal",
-    },
-  ],
+/*
+ * Google Sans is a proprietary Google font — it is NOT available on Google Fonts
+ * and cannot be imported via next/font/google. Using it causes:
+ *   ⚠ Failed to find font override values for font `Google Sans`
+ *
+ * Plus Jakarta Sans is the closest available substitute on Google Fonts:
+ * same geometric humanist style, very similar weight/spacing.
+ *
+ * The CSS variables --font-geist-sans / --font-geist-mono are injected by
+ * next/font as data attributes on <html>, which globals.css then picks up.
+ */
+const appFont = Plus_Jakarta_Sans({
   variable: "--font-geist-sans",
-});
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+})
 
-const jetbrainsMono = JetBrains_Mono({
+const monoFont = JetBrains_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
-});
+  weight: ["400", "500"],
+  display: "swap",
+})
 
 export const metadata: Metadata = {
   title: "Safety AnalystBot",
-  description: "RAG-powered safety incident analyst",
-};
+  description: "AI-powered safety incident analysis",
+}
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
-  const initThemeScript = `(() => {
-    try {
-      const saved = localStorage.getItem('theme');
-      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      if (saved === 'dark' || (!saved && prefersDark)) {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-    } catch (e) {}
-  })();`;
-
+}: {
+  children: React.ReactNode
+}) {
   return (
-    <html lang="en">
+    /*
+     * className="dark" — always render in dark mode.
+     * Ensures SSR and client both have identical class, so .dark CSS vars
+     * in globals.css apply correctly from first paint.
+     *
+     * suppressHydrationWarning — required because next-themes (or any theme
+     * toggle script) may modify the className attribute client-side.
+     * This prop ONLY suppresses the warning on <html> itself; child
+     * component warnings are still surfaced normally.
+     */
+    <html
+      lang="en"
+      className="dark"
+      suppressHydrationWarning
+    >
       <body
-        className={`${googleSans.variable} ${jetbrainsMono.variable} font-sans antialiased min-h-screen h-screen overflow-hidden`}
+        className={`${appFont.variable} ${monoFont.variable} font-sans antialiased min-h-screen h-screen overflow-hidden`}
       >
-        <script dangerouslySetInnerHTML={{ __html: initThemeScript }} />
         {children}
       </body>
     </html>
-  );
+  )
 }

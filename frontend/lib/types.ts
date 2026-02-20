@@ -9,9 +9,9 @@ export interface Source {
 }
 
 export interface SeverityResult {
-  label: string // "Major" | "Serious" | "Potentially Significant" | "Near Miss" | "Minor" | "Unknown"
-  confidence: number // 0.0–1.0
-  color: string // hex color string like "#ef4444"
+  label: string
+  confidence: number
+  color: string
   scores: Record<string, number>
   available: boolean
 }
@@ -75,4 +75,36 @@ export interface StatusResponse {
 export interface ModelOption {
   id: string
   label: string
+}
+
+// ── Live Reporting / Alert System ─────────────────────────────────────────────
+
+export type ContactRole = "Manager" | "VP Safety" | "Director" | "EHS Lead"
+
+export interface AlertContact {
+  id: string
+  name: string
+  email: string
+  role: ContactRole
+  phone: string | null
+  is_active: boolean
+  created_at: string
+}
+
+export type AlertStatus = "sent" | "failed" | "suppressed" | "pending"
+
+export interface AlertLog {
+  id: string
+  incident_text: string
+  filename: string | null
+  severity_label: string
+  confidence: number
+  threshold_used: number
+  contacts_notified: string[]
+  triggered_at: string
+  status: AlertStatus
+}
+
+export interface AlertSettings {
+  threshold: number
 }
