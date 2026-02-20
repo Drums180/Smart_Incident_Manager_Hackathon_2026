@@ -38,6 +38,43 @@ const riskColors: Record<string, string> = {
 
 const AREA_COLS = ["Remote", "Labs", "IT", "Digital", "PTW", "E&I", "Maint", "Process", "Office", "Logistics"] as const
 
+// Custom tooltip components with forced white text
+const CustomLineTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    return (
+      <div style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 12px" }}>
+        <p style={{ color: "#FFFFFF", margin: "0", fontSize: "14px" }}>{`Year: ${label}`}</p>
+        <p style={{ color: "#FFFFFF", margin: "4px 0 0 0", fontSize: "14px" }}>{`Reports: ${payload[0].value}`}</p>
+      </div>
+    )
+  }
+  return null
+}
+
+const CustomPieTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    return (
+      <div style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 12px" }}>
+        <p style={{ color: "#FFFFFF", margin: "0", fontSize: "14px" }}>{payload[0].name}</p>
+        <p style={{ color: "#FFFFFF", margin: "4px 0 0 0", fontSize: "14px" }}>{`Value: ${payload[0].value}`}</p>
+      </div>
+    )
+  }
+  return null
+}
+
+const CustomBarTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    return (
+      <div style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 12px" }}>
+        <p style={{ color: "#FFFFFF", margin: "0", fontSize: "14px" }}>{payload[0].payload.name}</p>
+        <p style={{ color: "#FFFFFF", margin: "4px 0 0 0", fontSize: "14px" }}>{`Value: ${payload[0].value}`}</p>
+      </div>
+    )
+  }
+  return null
+}
+
 function toYear(d: any) {
   const dt = new Date(d)
   const y = dt.getFullYear()
@@ -65,7 +102,36 @@ function parseCsvRobust(csvText: string): Row[] {
   const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0)
   if (lines.length < 2) return []
 
-  let headers = lines[0].split(",").map((h) => String(h ?? "").trim())
+  // Split CSV respecting quoted fields (commas inside quotes)
+  function splitCsv(line: string) {
+    const out: string[] = []
+    let cur = ""
+    let inQuotes = false
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i]
+      if (ch === '"') {
+        // handle escaped quotes ""
+        if (inQuotes && i + 1 < line.length && line[i + 1] === '"') {
+          cur += '"'
+          i++
+        } else {
+          inQuotes = !inQuotes
+        }
+        continue
+      }
+      if (ch === "," && !inQuotes) {
+        out.push(cur)
+        cur = ""
+        continue
+      }
+      cur += ch
+    }
+    out.push(cur)
+    // Trim surrounding quotes and whitespace
+    return out.map((s) => s.trim().replace(/^"|"$/g, "").replace(/""/g, '"'))
+  }
+
+  let headers = splitCsv(lines[0]).map((h) => String(h ?? "").trim())
   const n = headers.length
 
   const idxNActions = headers.indexOf("n_actions")
@@ -79,7 +145,7 @@ function parseCsvRobust(csvText: string): Row[] {
 
   for (let i = 1; i < lines.length; i++) {
     const raw = lines[i]
-    const parts = raw.split(",")
+    const parts = splitCsv(raw)
 
     // If perfect, map directly.
     if (parts.length === n) {
@@ -135,7 +201,8 @@ export default function ReportDashboard() {
 
   const [country, setCountry] = useState<string>("All")
   const [year, setYear] = useState<string>("All")
-  const [area, setArea] = useState<string>("All")
+  const [selectedAreas, setSelectedAreas] = useState<Set<string>>(new Set())
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
 
   useEffect(() => {
     setLoading(true)
@@ -182,6 +249,21 @@ export default function ReportDashboard() {
       .finally(() => setLoading(false))
   }, [])
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (isSettingsOpen && !target.closest(".settings-dropdown")) {
+        setIsSettingsOpen(false)
+      }
+    }
+    
+    if (isSettingsOpen) {
+      document.addEventListener("mousedown", handleClickOutside)
+      return () => document.removeEventListener("mousedown", handleClickOutside)
+    }
+  }, [isSettingsOpen])
+
   const countries = useMemo(() => {
     const set = new Set<string>()
     rows.forEach((r) => set.add(String(r.country)))
@@ -201,10 +283,14 @@ export default function ReportDashboard() {
     return rows.filter((r) => {
       if (country !== "All" && String(r.country) !== country) return false
       if (year !== "All" && String(r.year) !== year) return false
-      if (area !== "All" && !isTruthyCell(r[area])) return false
+      // If no areas selected, show all; otherwise require at least one match
+      if (selectedAreas.size > 0) {
+        const hasMatchingArea = Array.from(selectedAreas).some((area) => isTruthyCell(r[area]))
+        if (!hasMatchingArea) return false
+      }
       return true
     })
-  }, [rows, country, year, area])
+  }, [rows, country, year, selectedAreas])
 
   const lineData = useMemo(() => {
     const byYear = new Map<number, number>()
@@ -296,16 +382,46 @@ export default function ReportDashboard() {
             </select>
           </div>
 
-          <div className="rounded-lg px-3 py-2" style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}>
-            <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>area</div>
-            <select className="text-sm outline-none" value={area} onChange={(e) => setArea(e.target.value)} style={{ background: "transparent", color: "var(--text)" }}>
-              <option value="All">All</option>
-              {AREA_COLS.map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </select>
+          <div className="relative settings-dropdown">
+            <button
+              onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+              className="rounded-lg px-3 py-2 w-full text-left"
+              style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}
+            >
+              <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>settings</div>
+              <div className="text-sm" style={{ color: "var(--text)" }}>
+                {selectedAreas.size === 0 ? "All" : `${selectedAreas.size} selected`}
+              </div>
+            </button>
+
+            {isSettingsOpen && (
+              <div
+                className="absolute top-full left-0 mt-2 rounded-lg p-3 z-50 min-w-[200px]"
+                style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}
+              >
+                <div className="space-y-2">
+                  {AREA_COLS.map((a) => (
+                    <label key={a} className="flex items-center gap-2 cursor-pointer" style={{ color: "var(--text)" }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedAreas.has(a)}
+                        onChange={(e) => {
+                          const newAreas = new Set(selectedAreas)
+                          if (e.target.checked) {
+                            newAreas.add(a)
+                          } else {
+                            newAreas.delete(a)
+                          }
+                          setSelectedAreas(newAreas)
+                        }}
+                        style={{ cursor: "pointer" }}
+                      />
+                      <span className="text-xs">{a}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -321,10 +437,7 @@ export default function ReportDashboard() {
               <CartesianGrid strokeDasharray="0" stroke="var(--border)" />
               <XAxis dataKey="year" stroke="var(--text-muted)" />
               <YAxis stroke="var(--text-muted)" allowDecimals={false} />
-              <Tooltip
-                contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text)" }}
-                labelStyle={{ color: "var(--text-muted)" }}
-              />
+              <Tooltip content={<CustomLineTooltip />} />
               <Line type="monotone" dataKey="reports" stroke="var(--text)" strokeWidth={3} dot={{ r: 3 }} />
             </LineChart>
           </ResponsiveContainer>
@@ -350,7 +463,7 @@ export default function ReportDashboard() {
             </div>
 
             <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Filters applied: country={country}, year={year}, area={area}
+              Filters applied: country={country}, year={year}, settings={selectedAreas.size > 0 ? Array.from(selectedAreas).join(", ") : "All"}
             </div>
           </div>
         </div>
@@ -365,9 +478,7 @@ export default function ReportDashboard() {
                   <Cell key={i} fill={riskColors[d.name] || "#9AA0A6"} />
                 ))}
               </Pie>
-              <Tooltip
-                contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text)" }}
-              />
+              <Tooltip content={<CustomPieTooltip />} />
             </PieChart>
           </ResponsiveContainer>
 
@@ -401,9 +512,7 @@ export default function ReportDashboard() {
               <CartesianGrid strokeDasharray="0" stroke="var(--border)" />
               <XAxis type="number" stroke="var(--text-muted)" allowDecimals={false} />
               <YAxis type="category" dataKey="name" stroke="var(--text-muted)" width={140} />
-              <Tooltip
-                contentStyle={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text)" }}
-              />
+              <Tooltip content={<CustomBarTooltip />} />
               <Bar dataKey="value">
                 {severityData.map((d, i) => (
                   <Cell key={i} fill={severityColors[d.name] || severityColors.Unknown} />

@@ -17,8 +17,8 @@ export default function Home() {
         style={{ background: "var(--surface)", borderColor: "var(--border)" }}
       >
         <span
-          className="font-mono text-base font-bold tracking-wide"
-          style={{ color: "#ffffff", letterSpacing: "0.03em" }}
+          className="text-base font-bold"
+          style={{ color: "var(--text)", fontFamily: "var(--font-geist-sans)" }}
         >
           Safety AnalystBot
         </span>
