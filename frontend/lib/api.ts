@@ -10,9 +10,10 @@ import type {
 export const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
+// ── Core fetch helper ──────────────────────────────────────────────────────────
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const url = `${BASE_URL}${path}`
-  const response = await fetch(url, {
+  const response = await fetch(`${BASE_URL}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -21,12 +22,8 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   })
 
   if (!response.ok) {
-    let errorBody: string
-    try {
-      errorBody = await response.text()
-    } catch {
-      errorBody = "Unknown error"
-    }
+    let errorBody = "Unknown error"
+    try { errorBody = await response.text() } catch { /* ignore */ }
     throw new Error(
       `API request failed: ${response.status} ${response.statusText}. ${errorBody}`
     )
@@ -35,6 +32,28 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json()
 }
 
+// ── Multipart upload helper (NO Content-Type — browser sets boundary) ──────────
+
+async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method: "POST",
+    body: formData,
+    // deliberately no Content-Type header
+  })
+
+  if (!response.ok) {
+    let errorBody = "Unknown error"
+    try { errorBody = await response.text() } catch { /* ignore */ }
+    throw new Error(
+      `API request failed: ${response.status} ${response.statusText}. ${errorBody}`
+    )
+  }
+
+  return response.json()
+}
+
+// ── Chat ───────────────────────────────────────────────────────────────────────
+
 export async function sendMessage(req: ChatRequest): Promise<ChatResponse> {
   return apiFetch<ChatResponse>("/api/chat", {
     method: "POST",
@@ -42,12 +61,14 @@ export async function sendMessage(req: ChatRequest): Promise<ChatResponse> {
   })
 }
 
+// ── Conversations ──────────────────────────────────────────────────────────────
+
 export async function listConversations(): Promise<ConversationSummary[]> {
   return apiFetch<ConversationSummary[]>("/api/conversations")
 }
 
 export async function createConversation(
-  title: string = "New Conversation"
+  title = "New Conversation"
 ): Promise<ConversationSummary> {
   return apiFetch<ConversationSummary>("/api/conversations", {
     method: "POST",
@@ -55,9 +76,7 @@ export async function createConversation(
   })
 }
 
-export async function getConversation(
-  id: string
-): Promise<ConversationDetail> {
+export async function getConversation(id: string): Promise<ConversationDetail> {
   return apiFetch<ConversationDetail>(`/api/conversations/${id}`)
 }
 
@@ -69,59 +88,23 @@ export async function deleteConversation(
   })
 }
 
+// ── Dataset ────────────────────────────────────────────────────────────────────
+
 export async function uploadDataset(
   file: File
 ): Promise<{ status: string; filename: string; rows: number; message: string }> {
-  const formData = new FormData()
-  formData.append("file", file)
-
-  const url = `${BASE_URL}/api/upload-dataset`
-  const response = await fetch(url, {
-    method: "POST",
-    body: formData,
-  })
-
-  if (!response.ok) {
-    let errorBody: string
-    try {
-      errorBody = await response.text()
-    } catch {
-      errorBody = "Unknown error"
-    }
-    throw new Error(
-      `API request failed: ${response.status} ${response.statusText}. ${errorBody}`
-    )
-  }
-
-  return response.json()
+  const fd = new FormData()
+  fd.append("file", file)
+  return apiUpload("/api/upload-dataset", fd)
 }
 
-export async function validateApiKey(
-  provider: string,
-  api_key: string
-): Promise<{ valid: boolean; error: string | null }> {
-  return apiFetch<{ valid: boolean; error: string | null }>(
-    "/api/settings/validate-key",
-    {
-      method: "POST",
-      body: JSON.stringify({ provider, api_key }),
-    }
-  )
-}
+// ── PDF severity analysis ──────────────────────────────────────────────────────
+// Backend route: POST /api/analyze-pdf
+// FormData field name: "file"
+// FIX: was calling /api/analyze-pdf-severity (wrong) — now /api/analyze-pdf (correct)
+// FIX: response uses word_count not text_length
 
-export async function getModels(): Promise<
-  Record<string, ModelOption[]>
-> {
-  return apiFetch<Record<string, ModelOption[]>>("/api/settings/models")
-}
-
-export async function getStatus(): Promise<StatusResponse> {
-  return apiFetch<StatusResponse>("/api/status")
-}
-
-export async function analyzePdfSeverity(
-  file: File
-): Promise<{
+export async function analyzePdfSeverity(file: File): Promise<{
   severity: {
     label: string
     confidence: number
@@ -130,28 +113,31 @@ export async function analyzePdfSeverity(
     available: boolean
   }
   extracted_text: string
-  text_length: number
+  word_count: number
+  what_happened: string | null
+  filename: string
 }> {
-  const formData = new FormData()
-  formData.append("file", file)
+  const fd = new FormData()
+  fd.append("file", file)
+  return apiUpload("/api/analyze-pdf", fd)  // ← correct route
+}
 
-  const url = `${BASE_URL}/api/analyze-pdf-severity`
-  const response = await fetch(url, {
+// ── Settings ───────────────────────────────────────────────────────────────────
+
+export async function validateApiKey(
+  provider: string,
+  api_key: string
+): Promise<{ valid: boolean; error: string | null }> {
+  return apiFetch("/api/settings/validate-key", {
     method: "POST",
-    body: formData,
+    body: JSON.stringify({ provider, api_key }),
   })
+}
 
-  if (!response.ok) {
-    let errorBody: string
-    try {
-      errorBody = await response.text()
-    } catch {
-      errorBody = "Unknown error"
-    }
-    throw new Error(
-      `API request failed: ${response.status} ${response.statusText}. ${errorBody}`
-    )
-  }
+export async function getModels(): Promise<Record<string, ModelOption[]>> {
+  return apiFetch<Record<string, ModelOption[]>>("/api/settings/models")
+}
 
-  return response.json()
+export async function getStatus(): Promise<StatusResponse> {
+  return apiFetch<StatusResponse>("/api/status")
 }
