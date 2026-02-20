@@ -10,7 +10,7 @@ ever stored on the server.
 """
 
 import logging
-from typing import Optional
+from typing import Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ PROVIDER_MODELS = {
 # ══════════════════════════════════════════════════════════════════════════════
 
 def call_llm(
-    messages:    list[dict],
+    messages:    List[dict],
     provider:    str = "groq",
     api_key:     str = "",
     model:       Optional[str] = None,
@@ -116,7 +116,7 @@ def validate_api_key(provider: str, api_key: str) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _call_groq(
-    messages:    list[dict],
+    messages:    List[dict],
     api_key:     str,
     model:       Optional[str],
     max_tokens:  int,
@@ -140,7 +140,7 @@ def _call_groq(
 
 
 def _call_anthropic(
-    messages:    list[dict],
+    messages:    List[dict],
     api_key:     str,
     model:       Optional[str],
     max_tokens:  int,

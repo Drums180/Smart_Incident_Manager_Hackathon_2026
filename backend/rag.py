@@ -3,15 +3,28 @@ rag.py
 ------
 Full RAG pipeline: CSV → clean → chunk → embed → ChromaDB → retrieve.
 
-Ported directly from Challenge2_SmartRAG.ipynb (the working notebook).
-Uses ChromaDB in persistent mode so the index survives restarts.
-All state lives in module-level singletons loaded once at startup.
+Improvements over v1:
+  1. RERANKING  — after semantic retrieval, scores are boosted by
+                  keyword overlap between query and chunk text.
+                  This prevents high-scoring chunks that match the
+                  embedding but miss the actual keywords from dominating.
+  2. DEDUP      — chunks from the same record are deduplicated so the
+                  LLM sees diverse records, not 4 chunks from record #42.
+  3. WIDER NET  — we retrieve 3x n_results then rerank+dedup down to
+                  n_results. More candidates = better final selection.
+  4. SMART FALLBACK — if a filtered query returns < 3 hits we blend
+                  filtered + unfiltered results instead of dropping
+                  the filter entirely.
+  5. SECTION BOOST — "What Happened" chunks get a slight score boost
+                  for factual queries; "Lessons" chunks for prevention
+                  queries. Gives the LLM better-matched content.
+  6. Python 3.9 — all type hints use typing.Optional/List/Tuple/Dict.
 """
 
 import re
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Tuple, Dict
 
 import pandas as pd
 import numpy as np
@@ -85,7 +98,21 @@ DOMAIN_EXPANSIONS = [
      "trend change increase growth pattern year over year comparison"),
     (["compare", "difference", "versus", "vs", "between", "before", "after"],
      "compare contrast difference versus comparison analysis period"),
+    (["pre-shift", "briefing", "brief", "morning", "start of shift", "today"],
+     "pre-shift briefing safety hazard watch for alert awareness"),
+    (["pattern", "repeat", "recurring", "common", "frequent", "again"],
+     "recurring pattern repeat systemic common frequent multiple incidents"),
+    (["worst", "severe", "serious", "critical", "major", "priority"],
+     "major serious critical high risk severe priority escalation"),
 ]
+
+# Keywords that favour "What Happened" section
+FACTUAL_KEYWORDS = {"what", "happened", "describe", "explain", "detail",
+                    "incident", "occurred", "event", "accident"}
+
+# Keywords that favour "Lessons & Prevention" section
+LESSON_KEYWORDS  = {"prevent", "lesson", "recommendation", "avoid", "action",
+                    "corrective", "improve", "future", "should", "next time"}
 
 YEAR_RE = re.compile(r"\b(201\d|202\d)\b")
 
@@ -98,7 +125,7 @@ _df:         Optional[pd.DataFrame] = None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DATA CLEANING  (identical logic to notebook Cell 4)
+# DATA CLEANING
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _infer_country(row) -> str:
@@ -111,7 +138,6 @@ def _infer_country(row) -> str:
 
 
 def load_and_clean(csv_path: str) -> pd.DataFrame:
-    """Load CSV and apply all cleaning steps. Mirrors notebook Cell 4."""
     df = pd.read_csv(csv_path)
 
     df["risk_label"]     = df["risk"].map(RISK_MAP).fillna("Unknown")
@@ -142,12 +168,12 @@ def load_and_clean(csv_path: str) -> pd.DataFrame:
     for col in text_cols:
         df[col] = df[col].fillna("")
 
-    logger.info(f"Loaded and cleaned {len(df)} records from {csv_path}")
+    logger.info("Loaded and cleaned %d records from %s", len(df), csv_path)
     return df
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CHUNKING  (mirrors notebook Cell 5)
+# CHUNKING
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _build_location(row) -> str:
@@ -158,13 +184,7 @@ def _build_location(row) -> str:
     return country if country != "Unknown" else "Unknown Location"
 
 
-def build_chunks(df: pd.DataFrame) -> tuple[list, list, list]:
-    """
-    Convert DataFrame → (ids, texts, metadatas) ready for ChromaDB.
-    Each record produces up to 4 chunks (one per narrative section).
-    Every chunk carries its full metadata in the header text so the LLM
-    always knows which record it came from.
-    """
+def build_chunks(df: pd.DataFrame) -> Tuple[list, list, list]:
     ids, texts, metas = [], [], []
 
     for _, row in df.iterrows():
@@ -208,45 +228,37 @@ def build_chunks(df: pd.DataFrame) -> tuple[list, list, list]:
                 "classification": str(row["classification"]),
             })
 
-    logger.info(f"Built {len(ids)} chunks from {len(df)} records")
+    logger.info("Built %d chunks from %d records", len(ids), len(df))
     return ids, texts, metas
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# INDEXING  (persistent ChromaDB)
+# INDEXING
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _get_embedder() -> SentenceTransformer:
     global _embedder
     if _embedder is None:
-        logger.info("Loading sentence-transformer model (all-MiniLM-L6-v2)...")
+        logger.info("Loading sentence-transformer (all-MiniLM-L6-v2)...")
         _embedder = SentenceTransformer("all-MiniLM-L6-v2")
         logger.info("Embedding model loaded ✅")
     return _embedder
 
 
 def build_index(df: pd.DataFrame, chroma_path: str, force_rebuild: bool = False):
-    """
-    Build or load ChromaDB index.
-    - If index exists on disk and force_rebuild=False → load it (fast, ~2s)
-    - Otherwise → embed all chunks and write to disk (~90s first time)
-    """
     global _collection
 
     Path(chroma_path).mkdir(parents=True, exist_ok=True)
-    client = chromadb.PersistentClient(path=chroma_path)
-
+    client   = chromadb.PersistentClient(path=chroma_path)
     existing = [c.name for c in client.list_collections()]
 
     if "safety_incidents" in existing and not force_rebuild:
         _collection = client.get_collection("safety_incidents")
         if _collection.count() > 0:
-            logger.info(f"Loaded existing index: {_collection.count()} chunks ✅")
+            logger.info("Loaded existing index: %d chunks ✅", _collection.count())
             return _collection
-        # Collection exists but empty — rebuild
-        logger.info("Existing collection is empty, rebuilding...")
+        logger.info("Existing collection empty — rebuilding...")
 
-    # Fresh build
     try:
         client.delete_collection("safety_incidents")
     except Exception:
@@ -260,64 +272,49 @@ def build_index(df: pd.DataFrame, chroma_path: str, force_rebuild: bool = False)
     ids, texts, metas = build_chunks(df)
     embedder = _get_embedder()
 
-    logger.info(f"Embedding {len(texts)} chunks (this takes ~90s first time)...")
+    logger.info("Embedding %d chunks (~90s first time)...", len(texts))
     embeddings = embedder.encode(
         texts, batch_size=32, show_progress_bar=True, convert_to_numpy=True
     )
 
-    # Batch insert (ChromaDB has a per-batch limit)
     for i in range(0, len(ids), 200):
         _collection.add(
-            ids=       ids[i:i+200],
-            documents= texts[i:i+200],
-            embeddings=embeddings[i:i+200].tolist(),
-            metadatas= metas[i:i+200],
+            ids=        ids[i:i+200],
+            documents=  texts[i:i+200],
+            embeddings= embeddings[i:i+200].tolist(),
+            metadatas=  metas[i:i+200],
         )
 
-    logger.info(f"Indexed {_collection.count()} chunks ✅")
+    logger.info("Indexed %d chunks ✅", _collection.count())
     return _collection
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# QUERY PARSER  (mirrors notebook Cell 7, upgraded for multi-year)
+# QUERY PARSER
 # ══════════════════════════════════════════════════════════════════════════════
 
-def parse_query(query: str) -> tuple[str, Optional[dict], dict]:
-    """
-    1. Extract location / severity / year → ChromaDB metadata filter
-    2. Expand query with domain synonyms → better embedding recall
-
-    Returns (expanded_query, chroma_filter_or_None, extracted_info_dict)
-
-    Key design: if the query mentions multiple years (comparison intent),
-    we skip year filtering so retrieval covers the full range.
-    """
+def parse_query(query: str) -> Tuple[str, Optional[dict], dict]:
     q = query.lower()
     filters_list = []
     extracted: dict = {}
 
-    # Comparison intent — don't over-filter
     is_comparison = any(kw in q for kw in [
         "compare", "versus", " vs ", "difference", "before", "after",
         "then look", "changed", "trend", "between",
     ])
 
-    # Location
     if not is_comparison:
         for phrase, fv in LOCATION_MAP.items():
             if phrase in q:
                 filters_list.append(fv)
                 extracted["location"] = phrase.title()
                 break
-
-        # Severity
         for phrase, fv in SEVERITY_MAP.items():
             if phrase in q:
                 filters_list.append(fv)
                 extracted["severity"] = phrase.title()
                 break
 
-    # Year(s)
     years = YEAR_RE.findall(q)
     if years:
         extracted["years_mentioned"] = sorted(set(int(y) for y in years))
@@ -325,14 +322,12 @@ def parse_query(query: str) -> tuple[str, Optional[dict], dict]:
             filters_list.append({"year": years[0]})
             extracted["year"] = years[0]
 
-    # Build filter
     final_filter: Optional[dict] = None
     if len(filters_list) == 1:
         final_filter = filters_list[0]
     elif len(filters_list) > 1:
         final_filter = {"$and": filters_list}
 
-    # Query expansion
     expansions = []
     for keywords, expansion in DOMAIN_EXPANSIONS:
         if any(kw in q for kw in keywords):
@@ -343,7 +338,75 @@ def parse_query(query: str) -> tuple[str, Optional[dict], dict]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# RETRIEVER  (mirrors notebook Cell 8)
+# RERANKER
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _keyword_overlap_score(query_words: set, chunk_text: str) -> float:
+    """
+    Fraction of unique query words that appear in the chunk text.
+    Returns 0.0–1.0. Stops on very short queries.
+    """
+    if len(query_words) < 2:
+        return 0.0
+    chunk_lower = chunk_text.lower()
+    hits = sum(1 for w in query_words if w in chunk_lower)
+    return hits / len(query_words)
+
+
+def _section_preference_boost(query_lower: str, section: str) -> float:
+    """
+    Small boost (+0.05) when the query intent matches the section type.
+    Factual queries → What Happened. Prevention queries → Lessons.
+    """
+    q_words = set(query_lower.split())
+    if section == "What Happened" and q_words & FACTUAL_KEYWORDS:
+        return 0.05
+    if section == "Lessons & Prevention" and q_words & LESSON_KEYWORDS:
+        return 0.05
+    return 0.0
+
+
+def _rerank_and_dedup(
+    hits: List[dict],
+    query: str,
+    n_results: int,
+) -> List[dict]:
+    """
+    1. Boost semantic score with keyword overlap (weight: 30%)
+    2. Add section preference boost
+    3. Deduplicate: keep only the best-scoring chunk per record
+    4. Return top n_results
+    """
+    q_lower = query.lower()
+    # Extract meaningful words (skip stopwords and short tokens)
+    stop = {"the", "a", "an", "is", "in", "of", "to", "and", "for",
+            "on", "at", "by", "with", "this", "that", "are", "was",
+            "were", "be", "been", "have", "has", "had", "do", "did",
+            "what", "how", "why", "when", "where", "which", "who"}
+    q_words = {w for w in re.findall(r"[a-z]+", q_lower) if w not in stop and len(w) > 2}
+
+    scored = []
+    for h in hits:
+        sem_score     = h["score"]                                          # 0–1 cosine sim
+        kw_score      = _keyword_overlap_score(q_words, h["text"])          # 0–1
+        section_boost = _section_preference_boost(q_lower, h["metadata"].get("section", ""))
+        final_score   = (0.70 * sem_score) + (0.30 * kw_score) + section_boost
+        scored.append({**h, "score": round(final_score, 4)})
+
+    # Dedup: keep best chunk per record_id
+    seen_records: Dict[str, dict] = {}
+    for h in sorted(scored, key=lambda x: x["score"], reverse=True):
+        rid = h["metadata"]["report_id"]
+        if rid not in seen_records:
+            seen_records[rid] = h
+
+    # Return top n_results by score
+    deduped = sorted(seen_records.values(), key=lambda x: x["score"], reverse=True)
+    return deduped[:n_results]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RETRIEVER
 # ══════════════════════════════════════════════════════════════════════════════
 
 def retrieve(
@@ -351,12 +414,21 @@ def retrieve(
     n_results: int = 8,
     filters: Optional[dict] = None,
     auto_parse: bool = True,
-) -> tuple[list[dict], dict]:
+) -> Tuple[List[dict], dict]:
     """
-    Retrieve the most semantically relevant chunks for a query.
+    Retrieve the most relevant chunks for a query.
+
+    Pipeline:
+      1. Parse query → expand + extract filters
+      2. Embed expanded query
+      3. Retrieve 3× n_results candidates from ChromaDB (wider net)
+      4. If filter returns < 3 hits, blend with unfiltered results
+      5. Rerank by keyword overlap + section preference
+      6. Deduplicate to one chunk per record
+      7. Return top n_results
 
     Returns (hits, parsed_info)
-    hits: list of {text, metadata, score}
+    Each hit: {text, metadata, score}
     """
     global _collection
 
@@ -364,6 +436,7 @@ def retrieve(
         raise RuntimeError("RAG index not initialized. Call initialize() first.")
 
     parsed_info: dict = {}
+    candidates_n = min(n_results * 3, 50)   # wider net, capped at 50
 
     if auto_parse:
         expanded, auto_filters, parsed_info = parse_query(query)
@@ -371,36 +444,67 @@ def retrieve(
             filters = auto_filters
         query_vec = _get_embedder().encode([expanded]).tolist()
     else:
+        expanded  = query
         query_vec = _get_embedder().encode([query]).tolist()
 
-    def _do_query(where=None):
-        kw: dict = dict(
+    def _do_query(where=None, n=candidates_n):
+        kw = dict(
             query_embeddings=query_vec,
-            n_results=n_results,
+            n_results=n,
             include=["documents", "metadatas", "distances"],
         )
         if where:
             kw["where"] = where
         return _collection.query(**kw)
 
-    # Try with filter first; fall back to no filter if empty result
-    try:
-        res = _do_query(filters)
-        if not res["documents"][0]:
-            raise ValueError("empty")
-    except Exception:
-        logger.warning("Filter returned no results or errored — falling back to unfiltered")
-        res = _do_query()
+    def _parse_results(res) -> List[dict]:
+        return [
+            {"text": doc, "metadata": meta, "score": round(1 - dist, 4)}
+            for doc, meta, dist in zip(
+                res["documents"][0],
+                res["metadatas"][0],
+                res["distances"][0],
+            )
+        ]
 
-    hits = [
-        {"text": doc, "metadata": meta, "score": round(1 - dist, 4)}
-        for doc, meta, dist in zip(
-            res["documents"][0],
-            res["metadatas"][0],
-            res["distances"][0],
-        )
-    ]
-    return hits, parsed_info
+    # ── Retrieve with filter
+    filtered_hits: List[dict] = []
+    if filters:
+        try:
+            res = _do_query(filters)
+            if res["documents"][0]:
+                filtered_hits = _parse_results(res)
+        except Exception:
+            logger.warning("Filtered query failed — using unfiltered only")
+
+    # ── If filter gave < 3 results, blend in unfiltered
+    if len(filtered_hits) < 3:
+        try:
+            res_unfiltered = _do_query(None)
+            unfiltered_hits = _parse_results(res_unfiltered)
+        except Exception:
+            unfiltered_hits = []
+
+        if filtered_hits:
+            # Blend: filtered hits first (priority), then fill with unfiltered
+            filtered_ids = {h["metadata"]["report_id"] for h in filtered_hits}
+            extra = [h for h in unfiltered_hits if h["metadata"]["report_id"] not in filtered_ids]
+            candidates = filtered_hits + extra[:candidates_n - len(filtered_hits)]
+            logger.info("Blended %d filtered + %d unfiltered candidates", len(filtered_hits), len(extra))
+        else:
+            candidates = unfiltered_hits
+    else:
+        candidates = filtered_hits
+
+    if not candidates:
+        logger.warning("No candidates returned — index may be empty")
+        return [], parsed_info
+
+    # ── Rerank + dedup → final top n_results
+    final_hits = _rerank_and_dedup(candidates, expanded, n_results)
+    logger.info("retrieve: %d candidates → %d final hits", len(candidates), len(final_hits))
+
+    return final_hits, parsed_info
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -408,10 +512,6 @@ def retrieve(
 # ══════════════════════════════════════════════════════════════════════════════
 
 def initialize(csv_path: str, chroma_path: str, force_rebuild: bool = False):
-    """
-    Main entry point — call once at server startup.
-    Loads CSV, builds or loads ChromaDB index.
-    """
     global _df
     _df = load_and_clean(csv_path)
     build_index(_df, chroma_path, force_rebuild=force_rebuild)

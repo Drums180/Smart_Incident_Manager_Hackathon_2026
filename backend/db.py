@@ -15,7 +15,7 @@ import uuid
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ def create_conversation(title: str = "New Conversation") -> dict:
             "updated_at": now, "message_count": 0}
 
 
-def list_conversations() -> list[dict]:
+def list_conversations() -> List[dict]:
     with _conn() as conn:
         rows = conn.execute(
             "SELECT * FROM conversations ORDER BY updated_at DESC"
@@ -158,7 +158,7 @@ def add_message(
     }
 
 
-def get_messages(conv_id: str) -> list[dict]:
+def get_messages(conv_id: str) -> List[dict]:
     with _conn() as conn:
         rows = conn.execute(
             "SELECT * FROM messages "
@@ -175,7 +175,7 @@ def get_messages(conv_id: str) -> list[dict]:
     return result
 
 
-def get_history_for_llm(conv_id: str, max_turns: int = 8) -> list[dict]:
+def get_history_for_llm(conv_id: str, max_turns: int = 8) -> List[dict]:
     """
     Return the last N turn-pairs as [{role, content}] for the LLM.
     Strips sources/severity — LLM only needs role + content.
