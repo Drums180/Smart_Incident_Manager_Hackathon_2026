@@ -1,0 +1,18 @@
+id,type,country,city,lat,lon
+1,Headquarters,Canada,Vancouver,492.882,-1.231.162
+2,Production Facility,Canada,Medicine Hat,500.617,-1.107.410
+3,Production Facility,United States,Geismar,302.173,-909.995
+4,Production Facility,Chile,Punta Arenas,-529.641,-708.315
+5,Production Facility,Egypt,Damietta,314.086,317.828
+6,Production Facility,New Zealand,Motunui,-389.806,1.743.146
+7,Production Facility,Trinidad and Tobago,Point Lisas,10.3853,-614.800
+8,Regional Office,Belgium,Brussels,507.145,4.3854
+9,Regional Office,China,Beijing,399.042,1.164.074
+10,Regional Office,China,Shanghai,312.304,1.214.737
+11,Regional Office,China,Hong Kong,222.783,1.141.747
+12,Regional Office,Japan,Tokyo,356.678,1.397.501
+13,Regional Office,South Korea,Seoul,375.015,1.270.373
+14,Regional Office,United Arab Emirates,Dubai,252.048,552.708
+15,Regional Office,Egypt,Cairo,300.315,314.258
+16,Regional Office,United States,Plano,330.805,-968.223
+17,Regional Office,Chile,Santiago,-334.074,-705.702

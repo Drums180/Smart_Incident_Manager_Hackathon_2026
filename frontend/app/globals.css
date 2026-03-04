@@ -108,6 +108,20 @@
   --severity-major: #F4511E;
   --severity-serious: #EA4335;
   --severity-unknown: #9AA0A6;
+
+  /* RGB variants for use with rgba(...) so opacity works in both themes */
+  --severity-minor-rgb: 52,168,83;
+  --severity-nearmiss-rgb: 168,217,48;
+  --severity-potential-rgb: 255,143,0;
+  --severity-major-rgb: 244,81,30;
+  --severity-serious-rgb: 234,67,53;
+  --severity-unknown-rgb: 154,160,166;
+
+  /* Risk RGBs */
+  --risk-low-rgb: 52,168,83;
+  --risk-medium-rgb: 255,143,0;
+  --risk-high-rgb: 234,67,53;
+  --risk-unknown-rgb: 154,160,166;
 }
 
 /* ── Dark theme ─────────────────────────────────────────────────────────────── */
@@ -169,6 +183,20 @@
   --severity-major: #F4511E;
   --severity-serious: #EA4335;
   --severity-unknown: #9AA0A6;
+
+  /* RGB variants for dark theme */
+  --severity-minor-rgb: 52,168,83;
+  --severity-nearmiss-rgb: 168,217,48;
+  --severity-potential-rgb: 255,143,0;
+  --severity-major-rgb: 244,81,30;
+  --severity-serious-rgb: 234,67,53;
+  --severity-unknown-rgb: 154,160,166;
+
+  /* Risk RGBs */
+  --risk-low-rgb: 52,168,83;
+  --risk-medium-rgb: 255,143,0;
+  --risk-high-rgb: 234,67,53;
+  --risk-unknown-rgb: 154,160,166;
 }
 
 /* ── Base styles ────────────────────────────────────────────────────────────── */
@@ -190,5 +218,14 @@
     color: var(--text);
     min-height: 100vh;
     overflow: hidden;
+  }
+}
+/* ── Animations ─────────────────────────────────────────────────────────────── */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
   }
 }

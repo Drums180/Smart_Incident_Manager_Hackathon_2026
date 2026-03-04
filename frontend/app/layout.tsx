@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google"
 import "./globals.css"
+import ThemeProvider from "@/components/ThemeProvider"
 
 /*
  * Google Sans is a proprietary Google font — it is NOT available on Google Fonts
@@ -48,14 +49,11 @@ export default function RootLayout({
      * This prop ONLY suppresses the warning on <html> itself; child
      * component warnings are still surfaced normally.
      */
-    <html
-      lang="en"
-      className="dark"
-      suppressHydrationWarning
-    >
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${appFont.variable} ${monoFont.variable} font-sans antialiased min-h-screen h-screen overflow-hidden`}
       >
+        <ThemeProvider />
         {children}
       </body>
     </html>
