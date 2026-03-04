@@ -1,22 +1,8 @@
 "use client"
 
 import React, { useEffect, useMemo, useState } from "react"
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-  LabelList,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-} from "recharts"
-import CountryLines from './CountryLines'
+import MapPlaceholder from "./MapPlaceholder"
+import { ComposableMap, Marker } from "react-simple-maps"
 
 type Row = Record<string, any>
 
@@ -38,64 +24,84 @@ const riskColors: Record<string, string> = {
   Unknown: "var(--risk-unknown)",
 }
 
+
 const AREA_COLS = ["Remote", "Labs", "IT", "Digital", "PTW", "E&I", "Maint", "Process", "Office", "Logistics"] as const
 
-// Custom tooltip components using CSS variables for dynamic color
-const CustomLineTooltip = ({ active, payload, label }: any) => {
-  if (active && payload && payload.length) {
-    return (
-      <div style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 12px" }}>
-        <p style={{ color: "var(--text)", margin: "0", fontSize: "14px" }}>{`Year: ${label}`}</p>
-        <p style={{ color: "var(--text)", margin: "4px 0 0 0", fontSize: "14px" }}>{`Reports: ${payload[0].value}`}</p>
-      </div>
-    )
-  }
-  return null
+// Country color palette (matches the R flag_palette)
+const countryColors: Record<string, string> = {
+  Canada: "#EA4335",
+  USA: "#4285F4",
+  Chile: "#FBBC05",
+  Belgium: "#34A853",
+  Egypt: "#A142F4",
+  "New Zealand": "#00ACC1",
+  "Trinidad & Tobago": "#FF8F00",
+  Other: "#9CA3AF",
 }
 
-const CustomPieTooltip = ({ active, payload }: any) => {
-  if (active && payload && payload.length) {
-    return (
-      <div style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 12px" }}>
-        <p style={{ color: "var(--text)", margin: "0", fontSize: "14px" }}>{payload[0].name}</p>
-        <p style={{ color: "var(--text)", margin: "4px 0 0 0", fontSize: "14px" }}>{`Value: ${payload[0].value}`}</p>
-      </div>
-    )
-  }
-  return null
+// Hardcoded country centroids (Lon, Lat). Used to override corrupted CSV coordinates.
+const COUNTRY_COORDS: Record<string, [number, number]> = {
+  "Trinidad & Tobago": [-61.2225, 10.6918],
+  "Germany": [10.4515, 51.1657],
+  "Canada": [-106.3468, 56.1304],
+  "USA": [-95.7129, 37.0902],
+  "Chile": [-71.5429, -35.6751],
+  "Belgium": [4.4699, 50.5039],
+  "Egypt": [30.8024, 26.8205],
+  "New Zealand": [174.8859, -40.9006],
 }
 
-const CustomBarTooltip = ({ active, payload }: any) => {
-  if (active && payload && payload.length) {
-    return (
-      <div style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 12px" }}>
-        <p style={{ color: "var(--text)", margin: "0", fontSize: "14px" }}>{payload[0].payload.name}</p>
-        <p style={{ color: "var(--text)", margin: "4px 0 0 0", fontSize: "14px" }}>{`Value: ${payload[0].value}`}</p>
-      </div>
-    )
-  }
-  return null
+function normalizeCountry(c: any) {
+  const s = String(c ?? "").trim()
+  if (!s) return "Other"
+  if (s === "United States" || s === "United States of America" || s === "US") return "USA"
+  if (s === "Trinidad and Tobago") return "Trinidad & Tobago"
+  return s
 }
 
-// Clickable dot component for LineChart (declared at top-level to avoid render-time creation)
-const CustomLineDot = (props: any) => {
-  const { cx, cy, payload } = props
-  if (typeof cx !== 'number' || typeof cy !== 'number') return null
-  return (
-    <circle
-      cx={cx}
-      cy={cy}
-      r={4}
-      fill="var(--text)"
-      stroke="none"
-      style={{ cursor: 'pointer' }}
-      onClick={() => {
-        const y = String(payload?.year)
-        window.dispatchEvent(new CustomEvent('dashboard:selectYear', { detail: y }))
-      }}
-    />
-  )
+function toNum(v: any) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
 }
+
+// Overlay projection config (used by the transparent marker layer)
+// Finalized constants for overlay alignment.
+const OVERLAY_WIDTH = 1200
+const OVERLAY_HEIGHT = 360
+const OVERLAY_PROJECTION = "geoMercator" as const
+const OVERLAY_SCALE = 159
+const OVERLAY_CENTER: [number, number] = [2.5, 19.0]
+const OVERLAY_TRANSLATE: [number, number] = [OVERLAY_WIDTH / 2, OVERLAY_HEIGHT / 2]
+
+// Color helpers for "outline + lighter fill" markers
+function hexToRgb(hex: string) {
+  const h = hex.replace("#", "").trim()
+  if (h.length !== 6) return null
+  const r = parseInt(h.slice(0, 2), 16)
+  const g = parseInt(h.slice(2, 4), 16)
+  const b = parseInt(h.slice(4, 6), 16)
+  if ([r, g, b].some((v) => Number.isNaN(v))) return null
+  return { r, g, b }
+}
+
+function rgbToHex(r: number, g: number, b: number) {
+  const to2 = (n: number) => n.toString(16).padStart(2, "0")
+  return `#${to2(r)}${to2(g)}${to2(b)}`
+}
+
+// mix with white (t=0 -> original, t=1 -> white)
+function lightenHex(hex: string, t: number) {
+  const rgb = hexToRgb(hex)
+  if (!rgb) return hex
+  const tt = Math.min(1, Math.max(0, t))
+  const r = Math.round(rgb.r + (255 - rgb.r) * tt)
+  const g = Math.round(rgb.g + (255 - rgb.g) * tt)
+  const b = Math.round(rgb.b + (255 - rgb.b) * tt)
+  return rgbToHex(r, g, b)
+}
+
+// NOTE: Graph components removed — this view provides a lightweight
+// summary and lists instead of interactive charts.
 
 function toYear(d: any) {
   const dt = new Date(d)
@@ -191,12 +197,9 @@ export default function ExtendedAnalytics() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [rows, setRows] = useState<Row[]>([])
-  const [diagnostic, setDiagnostic] = useState<{ total: number; parsed: number; filtered: number; issues: string[] }>({
-    total: 0,
-    parsed: 0,
-    filtered: 0,
-    issues: [],
-  })
+  const [diagnostic, setDiagnostic] = useState(
+    { total: 0, parsed: 0, filtered: 0, issues: [] as string[] }
+  )
 
   const [country, setCountry] = useState<string>("All")
   const [year, setYear] = useState<string>("All")
@@ -206,6 +209,7 @@ export default function ExtendedAnalytics() {
   const [selectedRisk, setSelectedRisk] = useState<string | null>(null)
   const [selectedSeverity, setSelectedSeverity] = useState<string | null>(null)
 
+
   useEffect(() => {
     setLoading(true)
     fetch("/data/dashboard_database.csv")
@@ -213,6 +217,24 @@ export default function ExtendedAnalytics() {
       .then((text) => {
         const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0)
         const allParsed = parseCsvRobust(text)
+
+        // TEMP DEBUG: hunt rows that may have corrupted / swapped coordinates
+        const debugRows = allParsed.filter((row) => {
+          const c = String((row as any).country ?? "").toLowerCase()
+          return c.includes("germany") || c.includes("berlin") || c.includes("trinidad")
+        })
+        if (debugRows.length > 0) {
+          console.log("[DEBUG] Suspicious geo rows:", debugRows.length)
+          debugRows.forEach((row) => {
+            console.log({
+              country: (row as any).country,
+              lat_raw: (row as any).lat ?? (row as any).latitude,
+              lon_raw: (row as any).lon ?? (row as any).lng ?? (row as any).longitude,
+              row,
+            })
+          })
+        }
+
         const issues: string[] = []
 
         const filtered = allParsed
@@ -374,21 +396,79 @@ export default function ExtendedAnalytics() {
     }
   }, [filtered, riskData, severityData])
 
+  // Markers for map overlay (keeps MapPlaceholder aesthetics intact)
+  const markers = useMemo(() => {
+    return filtered
+      .map((r) => {
+        const countryNorm = normalizeCountry((r as any).country)
+
+        // Prefer hardcoded country centroids when available (CSV coords are sometimes corrupted)
+        const override = COUNTRY_COORDS[countryNorm]
+        let lonFixed: number | null = null
+        let latFixed: number | null = null
+
+        // Canada split: place Vancouver incidents separately from other Canada incidents
+        if (countryNorm === "Canada") {
+          const loc = String((r as any).site ?? (r as any).location ?? (r as any).city ?? "")
+            .trim()
+            .toLowerCase()
+          if (loc.includes("vancouver")) {
+            lonFixed = -123.1207
+            latFixed = 49.2827
+          } else {
+            // Medicine Hat / Alberta area (adjust if needed)
+            lonFixed = -110.6773
+            latFixed = 50.0416
+          }
+        }
+
+        if (lonFixed === null || latFixed === null) {
+          if (override) {
+            lonFixed = override[0]
+            latFixed = override[1]
+          } else {
+            // Fallback to CSV parsing when no override exists
+            const lat = toNum((r as any).lat ?? (r as any).latitude)
+            const lon = toNum((r as any).lon ?? (r as any).lng ?? (r as any).longitude)
+            console.log((r as any).country, lat, lon)
+
+            // If values look swapped (lat outside [-90,90] but lon within), swap them
+            latFixed = lat
+            lonFixed = lon
+            if (latFixed !== null && lonFixed !== null) {
+              const latOut = Math.abs(latFixed) > 90 && Math.abs(lonFixed) <= 90
+              if (latOut) {
+                const tmp = latFixed
+                latFixed = lonFixed
+                lonFixed = tmp
+              }
+            }
+          }
+        }
+
+        if (latFixed === null || lonFixed === null) return null
+
+        const key = countryNorm
+        const stroke = countryColors[key] ?? countryColors.Other
+        const fill = lightenHex(stroke, 0.70)
+
+        return { lon: lonFixed, lat: latFixed, stroke, fill, country: String((r as any).country ?? "") }
+      })
+      .filter(Boolean) as Array<{ lon: number; lat: number; stroke: string; fill: string; country: string }>
+  }, [filtered])
+
   if (loading) return <div className="p-6" style={{ color: "var(--text)" }}>Loading…</div>
   if (error) return <div className="p-6" style={{ color: "var(--destructive)" }}>Error: {error}</div>
 
   return (
-    <div className="w-full h-full p-6 overflow-auto" style={{ fontFamily: "var(--font-geist-sans)", background: "var(--surface)", color: "var(--text)" }}>
-      {/* Title row (like the sketch) */}
-      <div className="flex items-end justify-between gap-4 mb-6">
+    <div className="w-full h-full p-6 overflow-auto font-sans" style={{ background: "var(--surface)", color: "var(--text)" }}>
+      <div className="flex items-end justify-between gap-4 mb-4">
         <div>
           <div className="text-4xl font-extrabold tracking-wide" style={{ color: "var(--text)" }}>INCIDENTS REPORT</div>
           <div className="h-[3px] w-28 mt-1" style={{ background: "var(--accent)" }} />
         </div>
 
-        {/* Filters */}
         <div className="flex flex-wrap gap-3">
-          
           <div className="rounded-lg px-3 py-2" style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}>
             <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>country</div>
             <select
@@ -415,76 +495,46 @@ export default function ExtendedAnalytics() {
               ))}
             </select>
           </div>
-
-          <div className="relative settings-dropdown">
-            <button
-              onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-              className="rounded-lg px-3 py-2 w-full text-left"
-              style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}
-            >
-              <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>settings</div>
-              <div className="text-sm" style={{ color: "var(--text)" }}>
-                {selectedAreas.size === 0 ? "All" : `${selectedAreas.size} selected`}
-              </div>
-            </button>
-
-            {isSettingsOpen && (
-              <div
-                className="absolute top-full left-0 mt-2 rounded-lg p-3 z-50 min-w-[200px]"
-                style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}
-              >
-                <div className="space-y-2">
-                  {AREA_COLS.map((a) => (
-                    <label key={a} className="flex items-center gap-2 cursor-pointer" style={{ color: "var(--text)" }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedAreas.has(a)}
-                        onChange={(e) => {
-                          const newAreas = new Set(selectedAreas)
-                          if (e.target.checked) {
-                            newAreas.add(a)
-                          } else {
-                            newAreas.delete(a)
-                          }
-                          setSelectedAreas(newAreas)
-                        }}
-                        style={{ cursor: "pointer" }}
-                      />
-                      <span className="text-xs">{a}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
-      {/* Main grid like the sketch: top country lines + big line chart + right "expectations" box + bottom donut + severity bar */}
+
+      <div
+        className="relative w-full rounded-xl mb-6 overflow-hidden"
+        style={{
+          background: "#fff",
+          border: "1px solid",
+          borderColor: "var(--border)",
+        }}
+      >
+        <MapPlaceholder height={360} />
+
+        {/* Overlay dots using a transparent projected map layer (keeps MapPlaceholder visuals) */}
+        <div className="absolute inset-0 pointer-events-none">
+          <ComposableMap
+            projection={OVERLAY_PROJECTION}
+            width={OVERLAY_WIDTH}
+            height={OVERLAY_HEIGHT}
+            projectionConfig={{ scale: OVERLAY_SCALE, center: OVERLAY_CENTER }}
+            style={{ width: "100%", height: "100%", background: "transparent", display: "block" }}
+          >
+            {markers.map((m, i) => (
+              <Marker key={i} coordinates={[m.lon, m.lat]}>
+                <circle
+                  r={5}
+                  fill={m.fill}
+                  stroke={m.stroke}
+                  strokeWidth={2}
+                />
+                {/* subtle white halo to match card style */}
+                <circle r={7} fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth={2} />
+              </Marker>
+            ))}
+          </ComposableMap>
+        </div>
+      </div>
+
       <div className="grid grid-cols-12 gap-4">
-        {/* Country lines (TOP) */}
-        <div className="col-span-12 rounded-xl p-4" style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}>
-          <div className="text-sm font-semibold mb-2" style={{ color: "var(--text)" }}>Incidents over time by country</div>
-          <div className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>Top countries + Other</div>
-          <CountryLines rows={rows} filtered={filtered} setCountry={setCountry} />
-        </div>
-
-        {/* Line chart */}
-          <div className="col-span-12 lg:col-span-8 rounded-xl p-4" style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}>
-          <div className="text-sm font-semibold mb-2" style={{ color: "var(--text)" }}>Incidents over time</div>
-          <div className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>Counts after filters</div>
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={lineData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="0" stroke="var(--border)" />
-              <XAxis dataKey="year" stroke="var(--text-muted)" />
-              <YAxis stroke="var(--text-muted)" allowDecimals={false} />
-              <Tooltip content={<CustomLineTooltip />} />
-              <Line type="monotone" dataKey="reports" stroke="var(--text)" strokeWidth={3} dot={<CustomLineDot />} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Right notes / summary box (matches the “EXPECT…” scribble block) */}
         <div className="col-span-12 lg:col-span-4 rounded-xl p-4" style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}>
           <div className="text-sm font-semibold mb-2" style={{ color: "var(--text)" }}>Summary</div>
           <div className="space-y-3 text-sm">
@@ -502,128 +552,36 @@ export default function ExtendedAnalytics() {
               <div className="text-xs" style={{ color: "var(--text-muted)" }}>Top severity</div>
               <div className="font-semibold" style={{ color: "var(--text)" }}>{summary.sevTop}</div>
             </div>
-
-            <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Filters applied: country={country}, year={year}, settings={selectedAreas.size > 0 ? Array.from(selectedAreas).join(", ") : "All"}
-            </div>
           </div>
         </div>
 
-        {/* Primary classification (middle, full width) */}
-        <div className="col-span-12 rounded-xl p-4" style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}>
-          <div className="text-sm font-semibold mb-2" style={{ color: "var(--text)" }}>Primary classification</div>
-          <div className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>Count of incidents by primary_classification_std</div>
-          <ResponsiveContainer width="100%" height={Math.max(120, Math.min(400, primaryData.length * 36))}>
-            <BarChart data={primaryData} layout="vertical" margin={{ top: 6, right: 10, left: 10, bottom: 6 }}>
-              <CartesianGrid strokeDasharray="0" stroke="var(--border)" />
-              <XAxis type="number" stroke="var(--text-muted)" hide />
-              <YAxis type="category" dataKey="name" stroke="var(--text-muted)" width={220} />
-              <Tooltip content={<CustomBarTooltip />} />
-              <Bar dataKey="value" isAnimationActive={false}>
-                {primaryData.map((d, i) => (
-                  <Cell
-                    key={i}
-                    fill={d.color}
-                    fillOpacity={0.12}
-                    stroke={d.color}
-                    strokeWidth={2}
-                    onClick={() => setSelectedPrimary((s) => (s === d.name ? null : d.name))}
-                    style={{ cursor: 'pointer' }}
-                  />
-                ))}
-                <LabelList
-                  dataKey="label"
-                  position="insideRight"
-                  content={(props: any) => {
-                    const { x, y, width, height, index } = props
-                    const item = primaryData[index]
-                    if (!item || !item.label) return null
-                    const cx = x + width - 8
-                    const cy = y + height / 2 + 4
-                    return (
-                      <text x={cx} y={cy} fill={item.color} fontSize={12} textAnchor="end">
-                        {item.label}
-                      </text>
-                    )
-                  }}
-                />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Donut (risk distribution) */}
-        <div className="col-span-12 lg:col-span-5 rounded-xl p-4" style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}>
+        <div className="col-span-12 lg:col-span-4 rounded-xl p-4" style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}>
           <div className="text-sm font-semibold mb-2" style={{ color: "var(--text)" }}>Risk distribution</div>
-          <ResponsiveContainer width="100%" height={260}>
-            <PieChart>
-              <Pie data={riskData} dataKey="value" nameKey="name" innerRadius={70} outerRadius={105} paddingAngle={2}>
-                  {riskData.map((d, i) => (
-                    <Cell
-                      key={i}
-                      fill={riskColors[d.name] || "#9AA0A6"}
-                      fillOpacity={0.12}
-                      stroke={riskColors[d.name] || "#9AA0A6"}
-                      strokeWidth={2}
-                      onClick={() => setSelectedRisk((s) => (s === d.name ? null : d.name))}
-                      style={{ cursor: 'pointer' }}
-                    />
-                  ))}
-                </Pie>
-              <Tooltip content={<CustomPieTooltip />} />
-            </PieChart>
-          </ResponsiveContainer>
-
-          {/* Small legend (sketch-like) */}
-          <div className="mt-2 flex flex-wrap gap-3 text-xs" style={{ color: "var(--text)" }}>
-            {riskData
-              .slice()
-              .sort((a, b) => b.value - a.value)
-              .map((d) => (
-                <div key={d.name} className="flex items-center gap-2">
-                  <span className="inline-block h-2.5 w-2.5" style={{ background: 'rgba(0,0,0,0)', border: `2px solid ${riskColors[d.name] || "#9AA0A6"}`, boxSizing: 'border-box' }} />
-                  <span style={{ color: "var(--text-muted)" }}>
-                    {d.name}: {Math.round((d.value / Math.max(1, summary.total)) * 100)}%
-                  </span>
-                </div>
-              ))}
-          </div>
+          <div className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>Top categories</div>
+          <ul className="space-y-2">
+            {riskData.slice().sort((a,b)=>b.value-a.value).map((d)=> (
+              <li key={d.name} style={{ color: 'var(--text)' }} className="flex justify-between">
+                <span style={{ color: 'var(--text-muted)' }}>{d.name}</span>
+                <span className="font-medium">{d.value}</span>
+              </li>
+            ))}
+          </ul>
         </div>
 
-        {/* Severity bar (vertical list like the sketch) */}
-        <div className="col-span-12 lg:col-span-7 rounded-xl p-4" style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}>
+        <div className="col-span-12 lg:col-span-4 rounded-xl p-4" style={{ background: "var(--card)", border: "1px solid", borderColor: "var(--border)" }}>
           <div className="text-sm font-semibold mb-2" style={{ color: "var(--text)" }}>Severity counts</div>
-          <div className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>Ordered least → most severe</div>
-
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart
-                data={severityData}
-                layout="vertical"
-                margin={{ top: 10, right: 20, left: 30, bottom: 0 }}
-              >
-              <CartesianGrid strokeDasharray="0" stroke="var(--border)" />
-              <XAxis type="number" stroke="var(--text-muted)" allowDecimals={false} />
-              <YAxis type="category" dataKey="name" stroke="var(--text-muted)" width={140} />
-              <Tooltip content={<CustomBarTooltip />} />
-                <Bar dataKey="value" isAnimationActive={false}>
-                  {severityData.map((d, i) => (
-                    <Cell
-                      key={i}
-                      fill={d.name ? severityColors[d.name] || severityColors.Unknown : severityColors.Unknown}
-                      fillOpacity={0.12}
-                      stroke={d.name ? severityColors[d.name] || severityColors.Unknown : severityColors.Unknown}
-                      strokeWidth={2}
-                      onClick={() => setSelectedSeverity((s) => (s === d.name ? null : d.name))}
-                      style={{ cursor: 'pointer' }}
-                    />
-                  ))}
-                </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <div className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>Ordered least → most severe</div>
+          <ul className="space-y-2">
+            {severityData.map((d)=> (
+              <li key={d.name} style={{ color: 'var(--text)' }} className="flex justify-between">
+                <span style={{ color: 'var(--text-muted)' }}>{d.name}</span>
+                <span className="font-medium">{d.value}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
 
-      {/* Footer */}
       <div className="mt-4 text-xs" style={{ color: "var(--text-muted)" }}>
         Loaded rows: {rows.length} • Filtered rows: {filtered.length}
         <br />

@@ -33,12 +33,12 @@ export default function Home() {
         style={{ background: "var(--surface)", borderColor: "var(--border)" }}
       >
         {/* Logo — respects theme text color */}
-        <span
-          className="font-mono text-base font-bold tracking-wide shrink-0"
-          style={{ color: "var(--text)", letterSpacing: "0.03em" }}
-        >
-          Safety AnalystBot
-        </span>
+<span
+  className="text-xs font-medium tracking-wide shrink-0"
+  style={{ color: "var(--text)" }}
+>
+  Safety Analyst Bot
+</span>
 
         {/* Tab nav */}
         <nav className="flex items-center gap-1">

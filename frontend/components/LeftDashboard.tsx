@@ -407,7 +407,7 @@ export default function ReportDashboard() {
   if (error) return <div className="p-6" style={{ color: "var(--destructive)" }}>Error: {error}</div>
 
   return (
-    <div className="w-full h-full p-6 overflow-auto" style={{ fontFamily: "var(--font-geist-sans)", background: "var(--surface)", color: "var(--text)" }}>
+    <div className="w-full h-full p-6 overflow-auto font-sans" style={{ background: "var(--surface)", color: "var(--text)" }}>
       {/* Title row (like the sketch) */}
       <div className="flex items-end justify-between gap-4 mb-6">
         <div>
